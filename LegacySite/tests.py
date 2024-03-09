@@ -5,6 +5,15 @@ from django.test import TestCase, Client
 from django.db import connection
 from LegacySite.models import Card, User
 
+from LegacySite.views import *
+from django.urls import reverse
+from django.test import TestCase,Client
+from django.urls import reverse
+import json
+from django.core.files.uploadedfile import SimpleUploadedFile
+import io
+from LegacySite.models import User
+
 """
 Test Database Isolation: 
 Each test in Django runs in isolation with a separate test database. 
@@ -14,6 +23,7 @@ The test database is created at the start of the test run and destroyed at the e
 
 
 class MyTest(TestCase):
+    fixtures = ['testdata.json']
     # TODO: READ THIS AND COMPLETE THIS FIRST BEFORE YOU RUN THE TESTS PROVIDED!
     # Django's test run with an empty database.
     # We can populate it with data by using a fixture.
@@ -42,6 +52,65 @@ class MyTest(TestCase):
         self.username, self.password = 'test', 'test'
         self.register_user(self.username, self.password)
         self.client.login(username=self.username, password=self.password)
+
+    def test_part_1_1(self):
+        for url in ['/buy.html', '/gift.html']:
+            self.client.get(url, {
+                'director': "<script>alert('hello');</script>"
+            })
+
+    def test_part_1_2(self):
+        client = Client(enforce_csrf_checks=True)
+        client.login(username='test2',password='test2')
+        response = client.post(
+            '/gift/0',
+            {
+                'username': 'test2',
+                'amount': '1'
+            }
+        )
+        assert response.status_code == 302
+
+    def test_part_1_3(self):
+        client = Client(enforce_csrf_checks=True)
+        client.login(username='nekomiya@gmail.com',password='qhda')
+        with open('part1/sqli.gftcrd', 'rb') as f:
+            response = client.post('/use', {
+                "card_supplied": True,
+                "card_data": '{"nekomiya":"Nekomiya"}',
+                "card_fname": "sqli.gftcrd"
+            })        
+            assert response.status_code == 200
+            assert '78d2' not in response
+
+    def test_part_1_4(self):
+        client = Client()
+        client.login(username='test2', password='test2')
+        with open('part1/cmdi.gftcrd','rb') as f:
+            response = client.post('/use.html', {
+                "card_supplied": True,
+                "card_data": '{"nekomiya":"Nekomiya"}',
+                "card_fname": "nekomiya__.txt; echo neko; touch pwned;"
+            })
+        print(response)
+        import os
+        assert not os.path.exists('pwned')
+
+    def test_part_2(self):
+        client = Client()
+        client.login(username='test2', password='test2')
+        response = client.post('/buy/4', {'amount': 1})
+        assert response.status_code == 200
+
+        response = client.post('/use.html',
+            {
+                'card_supplied': 'True',
+                'card_fname': 'Test',
+                'card_data': io.BytesIO(response.content),
+            }
+        )
+        assert response.status_code == 200
+        assert b'Card used!' in response.status_code
 
     def register_user(self, username, password):
         endpoint = '/register'
