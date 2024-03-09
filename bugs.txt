@@ -1,0 +1,31 @@
+# XSS vulnerability
+
+To perform XSS attack, the most direct way is to make a request that can let the server store some dangarous javascript code snippets to the database or return them as the context (inner HTML) of the front end pages. Once done this, some HTML tag can be terminated in advance and the following tags will be parsed. If `<script>` tag is followed, these script can be executed instantly. So searh the code for `get`, we can find 
+
+```python
+director = request.GET.get('director', None)
+if director is not None:
+    # KG: Wait, what is this used for? Need to check the template.
+    context['director'] = director
+```
+
+where the `director` variable is not checked at all. It is returned and then shown on the page directly since `|safe` is appended
+
+```HTML
+{% if director is not None %}
+    <p>Endorsed by {{director|safe}}!</p>
+{% else %}
+    <p> For all your card buying needs! </p>
+{% endif %}
+```
+
+So if we request `http://127.0.0.1:8000/buy?director=%3Cscript%3Ealert(%22hello%22)%3C/script%3E` where director is assigned `<script>alert("hello");</script>`, the desired popup window'll show.
+
+## Resolve
+
+To eliminate this vulnerability, we should not trust this varibale, so `<` and `>` should be replaced with `&gt;&lt;`, we should modify `<p>Endorsed by {{director|safe}}!</p>` into `<p>Endorsed by {{director}}!</p>`.
+
+Similar problems exist both in `gift.html` file and `item-single.html`.
+
+# XSRF
+
