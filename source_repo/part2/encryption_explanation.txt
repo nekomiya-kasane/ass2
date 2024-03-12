@@ -1,0 +1,5 @@
+# Part 2
+
+1. I changed `BinaryField` to `EncryptedTextField`, which makes the card information in the database gets encrypted
+
+2. In `settings.py`, in order to hide the plain text SECRET_KEY so that git users won't know the password, I used `config` and `decouple` to read config strings. 

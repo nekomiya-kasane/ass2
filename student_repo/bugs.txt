@@ -1,0 +1,92 @@
+# XSS vulnerability
+
+To perform XSS attack, the most direct way is to make a request that can let the server store some dangarous javascript code snippets to the database or return them as the context (inner HTML) of the front end pages. Once done this, some HTML tag can be terminated in advance and the following tags will be parsed. If `<script>` tag is followed, these script can be executed instantly. So searh the code for `get`, we can find 
+
+```python
+director = request.GET.get('director', None)
+if director is not None:
+    # KG: Wait, what is this used for? Need to check the template.
+    context['director'] = director
+```
+
+where the `director` variable is not checked at all. It is returned and then shown on the page directly since `|safe` is appended
+
+```HTML
+{% if director is not None %}
+    <p>Endorsed by {{director|safe}}!</p>
+{% else %}
+    <p> For all your card buying needs! </p>
+{% endif %}
+```
+
+So if we request `http://127.0.0.1:8000/buy?director=%3Cscript%3Ealert(%22hello%22)%3C/script%3E` where director is assigned `<script>alert("hello");</script>`, the desired popup window'll show.
+
+## Solution
+
+To eliminate this vulnerability, we should not trust this varibale, so `<` and `>` should be replaced with `&gt;&lt;`, we should modify `<p>Endorsed by {{director|safe}}!</p>` into `<p>Endorsed by {{director}}!</p>`.
+
+Similar problems exist both in `gift.html` file and `item-single.html`.
+
+# XSRF
+
+We can note the lack of CSRF prevention codes, so once we open an HTML file, the request will be sent as normal visits. So we can construct a proper post/get that imitate users normal requests to achieve the same thing.
+
+## Solution 
+
+To eliminate this vulnerability, we should add CSRF middleware to reject such requests. According to the Django's documentation https://docs.djangoproject.com/en/5.0/howto/csrf/, I added `{% csrf_token %}` after all `form` tags to enable CSRF middleware.
+
+# SQL injection
+
+Pay attention to the following SQL queries:
+
+```python
+card_query = Card.objects.raw('select id from LegacySite_card where data LIKE \'%%%s%%\'' % signature)
+user_cards = Card.objects.raw('select id, count(*) as count from LegacySite_card where LegacySite_card.user_id = %s' % str(request.user.id))
+```
+
+we can see that signature is not checked and directly concatated at the end, thus if we add something in it, it will be still evaluated. So if we append
+
+```SQL
+union select password from LegacySite_user where username = 'admin'--"
+```
+
+the password will be retrieved.
+
+## Solution
+
+To eliminate this vulnerability, we can modify it to 
+
+```python
+card_query = Card.objects.raw('select id from LegacySite_card where data = %s', [signature]) 
+```
+
+# Command injection
+
+In `parse_card_data(card_file_data, card_path_name)`, I found 
+
+```python
+with open(card_path_name, 'wb') as card_file:
+    card_file.write(card_file_data)
+# KG: Are you sure you want the user to control that input?
+print(f"running: {CARD_PARSER} 2 {card_path_name} > tmp_file")
+ret_val = system(f"{CARD_PARSER} 2 {card_path_name} > tmp_file")
+```
+
+which is extremely dangarous, `card_path_name` can be not only a path, but also other shell commands, so if we can construct a payload to bypass all the check before these lines, but remain card_path_name a valid hackery shell command, then we can execute many commands from front end. I constructed the following post with file:
+
+```
+http://127.0.0.1:8000/use
+card_supplied=True
+card_data={"nekomiya":"Nekomiya"}
+card_fname=nekomiya__.txt; echo neko; touch pwned;
+```
+
+which will actually run 
+
+```shell
+giftcardreader_linux 2 nekomiya__.txt; echo neko; touch pwned; > tmp_file
+```
+
+## Solution
+
+To eliminate this vulnerability, we can add more codes to verify the validity of related variables, a signature should only contain digits and letters, a path name should have no forbidden letters. So I added `card_fname.isalnum():` to check.
